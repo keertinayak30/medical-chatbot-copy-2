@@ -1,19 +1,19 @@
 name: Sync to Hugging Face hub
+
 on:
   push:
     branches: [main]
-    
-  workflow_dispatch:
-  
+
 jobs:
   sync-to-hub:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v3
         with:
           fetch-depth: 0
           lfs: true
-      - name: Push to hub
+
+      - name: Push to Hugging Face hub
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: git push --force https://keertinayak30:$HF_TOKEN@huggingface.co/spaces/keertinayak30/medical-chatbot-v2 main
+        run: git push --force https://keertinayak30:$HF_TOKEN@huggingface.co/spaces/keertinayak30/medical-chatbot-v3 main
