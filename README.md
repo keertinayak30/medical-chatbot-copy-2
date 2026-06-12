@@ -4,8 +4,6 @@ emoji: 👩🏻‍⚕️
 colorFrom: green
 colorTo: blue
 sdk: docker
-python_version: 3.10
-app_file: streamlit_app.py
 pinned: false
 license: apache-2.0
 ---
