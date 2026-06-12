@@ -10,7 +10,7 @@ license: apache-2.0
 
 # MediBot AI: Multimodal Agentic Medical Assistant
 
-**Live Demo:** [Launch MediBot V2](https://keertinayak30-medical-chatbot-v2.hf.space/)
+**Live Demo:** [Launch MediBot V2](https://huggingface.co/spaces/keertinayak30/medibot-v3/)
 
 ## Overview
 
