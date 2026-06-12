@@ -1,0 +1,23 @@
+langchain==0.3.26
+flask==3.1.1
+sentence-transformers==4.1.0
+pypdf==5.6.1
+python-dotenv==1.1.0
+langchain-pinecone==0.2.8
+langchain-community==0.3.26
+langchain-groq==0.3.8
+gunicorn==22.0.0
+groq  # Groq Python SDK — Whisper transcription + Llama 4 Scout vision model
+gTTS  # Google Text-to-Speech — free, no API key; used by /speak for voice output
+langgraph==0.2.*  # LangGraph 0.2.x — must stay on 0.2.x for langchain==0.3.x compatibility
+# ── FastAPI + Streamlit layer (added for v2 architecture) ─────────────────────────
+fastapi                  # FastAPI backend framework
+uvicorn[standard]        # ASGI server — runs FastAPI as a background thread inside Streamlit
+httpx                    # Sync HTTP client used by Streamlit to call FastAPI endpoints
+streamlit                # Streamlit UI framework
+audio-recorder-streamlit # In-browser mic recorder — returns WAV bytes for Whisper transcription
+python-multipart         # Required by FastAPI to parse multipart/form-data (file uploads)
+-e .
+# ── RAGAS evaluation (offline only — not used by the running app) ─────────────
+ragas                    # RAG evaluation framework — faithfulness, answer_relevancy, context_precision
+datasets                 # HuggingFace datasets library — required by ragas.evaluate()

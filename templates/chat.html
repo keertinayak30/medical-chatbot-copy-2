@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MediBot - Medical Assistant</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='style.css')}}">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    
+</head>
+<body>
+    <div class="chat-card">
+        <div class="chat-header d-flex align-items-center">
+            <i class="fas fa-user-md fa-2x me-3"></i>
+            <div>
+                <h5 class="mb-0 fw-bold">MediBot AI</h5>
+                <small class="opacity-75">Gale Medical Encyclopedia Knowledge</small>
+            </div>
+            <div class="theme-toggle" id="themeToggle">
+                <i class="fas fa-moon"></i>
+            </div>
+        </div>
+
+        <div id="chatWindow" class="chat-messages">
+            <div class="text-center py-5 text-muted welcome-message">
+                <i class="fas fa-notes-medical fa-3x mb-3 text-teal"></i>
+                <h5 class="text-main">Welcome to MediBot</h5>
+                <p class="small px-4">Ask about symptoms, treatments, or medical conditions.</p>
+            </div>
+        </div>
+
+        <div id="typingIndicator" class="px-4 py-2 small text-muted" style="display:none;">
+            <i class="fas fa-circle-notch fa-spin me-2"></i> MediBot is thinking...
+        </div>
+
+        <div class="chat-input">
+            <form id="messageForm">
+                <!-- Thumbnail preview: shown when an image is attached, hidden by default -->
+                <div id="imgPreviewArea" style="display:none; padding: 4px 0 6px 0;">
+                    <span style="position:relative; display:inline-block;">
+                        <img id="imgThumbnail" src="" alt="preview" style="height:52px; border-radius:6px; border:1px solid rgba(128,128,128,0.3); display:block;">
+                        <button type="button" id="removeImgBtn" title="Remove image"
+                            style="position:absolute; top:-7px; right:-7px; width:18px; height:18px; border-radius:50%; border:none; background:#e53e3e; color:#fff; font-size:10px; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center;">✕</button>
+                    </span>
+                </div>
+                <!-- Hidden file picker: triggered by the camera button below -->
+                <input type="file" id="imageInput" accept="image/jpeg,image/jpg,image/png,image/webp" style="display:none">
+                <div class="input-group">
+                    <input type="text" id="userInput" class="form-control" placeholder="Type your medical query...">
+                    <!-- Camera button: opens image file picker -->
+                    <button type="button" id="cameraBtn" class="btn btn-send" title="Attach an image">
+                        <i class="fas fa-camera"></i>
+                    </button>
+                    <!-- Mic button: click to start recording, click again to stop -->
+                    <button type="button" id="micBtn" class="btn btn-send" title="Click to speak">
+                        <i class="fas fa-microphone" id="micIcon"></i>
+                    </button>
+                    <button type="submit" class="btn btn-send">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+                <!-- Vision error display: shown if /analyze-image returns an error -->
+                <div id="visionError" style="display:none; color:#e53e3e; font-size:0.8rem; padding-top:4px;"></div>
+            </form>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script>
+$(document).ready(function() {
+    // Clear server-side memory on every page load — ensures a fresh session on reload
+    fetch('/reset-memory', { method: 'POST' });
+
+    // ✅ 1. DARK/LIGHT THEME TOGGLE
+    $('#themeToggle').on('click', function() {
+        const body = $('body');
+        const icon = $(this).find('i');
+        
+        if (body.attr('data-theme') === 'dark') {
+            body.removeAttr('data-theme');
+            icon.removeClass('fa-sun').addClass('fa-moon');
+            localStorage.setItem('theme', 'light');
+        } else {
+            body.attr('data-theme', 'dark');
+            icon.removeClass('fa-moon').addClass('fa-sun');
+            localStorage.setItem('theme', 'dark');
+        }
+    });
+
+    // ✅ 2. LOAD SAVED THEME
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    if (savedTheme === 'dark') {
+        $('body').attr('data-theme', 'dark');
+        $('#themeToggle i').removeClass('fa-moon').addClass('fa-sun');
+    }
+
+    // ✅ 3. CHAT FUNCTIONS
+    // ✅ FIXED: Target the chat window, not the form
+    function scrollToBottom() {
+        const chatWindow = $('#chatWindow');
+        chatWindow.animate({ scrollTop: chatWindow[0].scrollHeight }, 300);
+    }
+
+    function addUserMessage(msg) {
+        const time = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        $('#chatWindow').append(`
+            <div class="message user">
+                <div class="message-content">
+                    ${msg}
+                    <div class="message-time">${time}</div>
+                </div>
+            </div>
+        `);
+        scrollToBottom();
+    }
+
+    function addBotMessage(msg) {
+        const time = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        const msgId = 'bot-msg-' + Date.now();
+        $('#chatWindow').append(`
+            <div class="message bot">
+                <div class="message-content" id="${msgId}">
+                    ${marked.parse(msg)}
+                    <div class="message-footer">
+                        <span class="message-time">${time}</span>
+                        <button class="speak-btn" data-msgid="${msgId}" title="Listen to this response">
+                            <i class="fas fa-volume-up"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `);
+        // Store raw markdown text on the element — jQuery .data() avoids HTML-escaping issues
+        $('#' + msgId).data('raw', msg);
+        scrollToBottom();
+    }
+
+    // Shows a user bubble with a small image thumbnail + optional text (for image submissions)
+    function addUserImageMessage(imgSrc, msg) {
+        const time = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        const textPart = msg ? `<div style="margin-top:4px;">${msg}</div>` : '';
+        $('#chatWindow').append(`
+            <div class="message user">
+                <div class="message-content">
+                    <img src="${imgSrc}" style="max-height:80px; max-width:120px; border-radius:6px; display:block;">
+                    ${textPart}
+                    <div class="message-time">${time}</div>
+                </div>
+            </div>
+        `);
+        scrollToBottom();
+    }
+
+    function showTyping() {
+        $('#typingIndicator').show();
+        scrollToBottom();
+    }
+
+    function hideTyping() {
+        $('#typingIndicator').hide();
+    }
+
+    // Displays agent status updates sequentially (400ms apart) then shows the final answer.
+    // The backend returns all updates at once; we "fake" live streaming with timeouts.
+    function showStatusThenResponse(statusUpdates, response) {
+        hideTyping();
+        const updates = statusUpdates || [];
+
+        if (updates.length === 0) {
+            addBotMessage(response);
+            return;
+        }
+
+        // Temporary status bubble — replaced by the real answer once all steps are shown
+        const statusId = 'status-' + Date.now();
+        $('#chatWindow').append(`
+            <div class="message bot" id="${statusId}">
+                <div class="message-content" style="opacity:0.75; font-size:0.85rem; font-style:italic; padding: 10px 14px;">
+                    <i class="fas fa-circle-notch fa-spin me-2" style="opacity:0.6; font-size:0.8rem;"></i>
+                    <span class="status-text"></span>
+                </div>
+            </div>
+        `);
+        scrollToBottom();
+
+        let delay = 0;
+        updates.forEach(update => {
+            setTimeout(() => {
+                $('#' + statusId + ' .status-text').text(update);
+                scrollToBottom();
+            }, delay);
+            delay += 400;
+        });
+
+        // Remove the status bubble and render the real answer after all steps are shown
+        setTimeout(() => {
+            $('#' + statusId).remove();
+            addBotMessage(response);
+        }, delay + 300);
+    }
+
+    // ✅ 4. FORM SUBMIT — routes to /analyze-image if an image is attached, else /get (unchanged text path)
+    $('#messageForm').on('submit', function(e) {
+        e.preventDefault();
+        const msg = $('#userInput').val().trim();
+
+        // Need at least text OR an image — both together is also fine
+        if (!msg && !selectedImageFile) return;
+
+        $('.welcome-message').remove();
+        $('#visionError').hide();
+
+        if (selectedImageFile) {
+            // --- IMAGE PATH: POST multipart to /analyze-image ---
+            addUserImageMessage(selectedImageURL, msg);
+            $('#userInput').val('');
+
+            // Capture refs before clearing state so the fetch closure can use them
+            const fileToSend = selectedImageFile;
+            const urlToRevoke = selectedImageURL;
+            selectedImageFile = null;
+            selectedImageURL = null;
+            $('#imgPreviewArea').hide();
+
+            showTyping();
+
+            const formData = new FormData();
+            formData.append('image', fileToSend);
+            formData.append('question', msg);
+
+            fetch('/analyze-image', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(data => {
+                    URL.revokeObjectURL(urlToRevoke);
+                    if (data.error) {
+                        hideTyping();
+                        $('#visionError').text('⚠️ ' + data.error).show();
+                    } else {
+                        // Show agent status steps sequentially, then reveal the final answer
+                        showStatusThenResponse(data.status_updates, data.response);
+                    }
+                })
+                .catch(() => {
+                    hideTyping();
+                    URL.revokeObjectURL(urlToRevoke);
+                    addBotMessage("Sorry, I'm having trouble with the image analysis. Please try again! ⚠️");
+                });
+
+        } else {
+            // --- TEXT PATH: exactly as before, zero changes ---
+            addUserMessage(msg);
+            $('#userInput').val('');
+            showTyping();
+
+            $.ajax({
+                url: '/get',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({msg: msg}),
+                success: function(data) {
+                    // Show agent status steps sequentially, then reveal the final answer
+                    showStatusThenResponse(data.status_updates, data.response);
+                },
+                error: function() {
+                    hideTyping();
+                    addBotMessage("Sorry, I'm having trouble connecting. Please try again! ⚠️");
+                }
+            });
+        }
+    });
+
+    $('#userInput').on('keypress', function(e) {
+        if (e.which === 13) {
+            $('#messageForm').submit();
+        }
+    });
+
+    $('#userInput').focus();
+
+    // ✅ 5. IMAGE INPUT — file picker + /analyze-image route
+    let selectedImageFile = null;   // holds the File object while attached
+    let selectedImageURL = null;    // object URL for thumbnail display
+
+    // Camera button click opens the hidden file picker
+    $('#cameraBtn').on('click', function () {
+        $('#imageInput').click();
+    });
+
+    // When user picks a file: validate, create object URL, show thumbnail
+    $('#imageInput').on('change', function () {
+        const file = this.files[0];
+        if (!file) return;
+
+        selectedImageFile = file;
+        selectedImageURL = URL.createObjectURL(file);
+
+        $('#imgThumbnail').attr('src', selectedImageURL);
+        $('#imgPreviewArea').show();
+        $('#visionError').hide();
+
+        // Reset so the same file can be re-attached after removal
+        this.value = '';
+    });
+
+    // ✕ button clears the attached image
+    $('#removeImgBtn').on('click', function () {
+        if (selectedImageURL) URL.revokeObjectURL(selectedImageURL);
+        selectedImageFile = null;
+        selectedImageURL = null;
+        $('#imgThumbnail').attr('src', '');
+        $('#imgPreviewArea').hide();
+        $('#visionError').hide();
+    });
+
+    // ✅ 6. VOICE OUTPUT — speaker button on each bot bubble → /speak → MP3 playback
+    // Event delegation handles buttons added dynamically by addBotMessage
+    $(document).on('click', '.speak-btn', async function () {
+        const btn = $(this);
+        const msgId = btn.data('msgid');
+        const rawMsg = $('#' + msgId).data('raw');
+
+        // Strip markdown → plain text using a throwaway DOM element (browser does the work)
+        const tmp = document.createElement('div');
+        tmp.innerHTML = marked.parse(rawMsg);
+        const plainText = (tmp.innerText || tmp.textContent || '').trim();
+        if (!plainText) return;
+
+        // If audio for this button is already playing → pause it; if paused → resume it
+        const existingAudio = btn.data('audio');
+        if (existingAudio) {
+            if (!existingAudio.paused) {
+                existingAudio.pause();
+                btn.find('i').removeClass('fa-pause').addClass('fa-volume-up');
+            } else {
+                existingAudio.play();
+                btn.find('i').removeClass('fa-volume-up').addClass('fa-pause');
+            }
+            return;
+        }
+
+        // Show loading spinner while waiting for /speak to respond
+        btn.find('i').removeClass('fa-volume-up').addClass('fa-circle-notch fa-spin');
+        btn.prop('disabled', true);
+
+        try {
+            const res = await fetch('/speak', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: plainText })
+            });
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                btn.find('i').removeClass('fa-circle-notch fa-spin').addClass('fa-volume-up');
+                btn.prop('disabled', false);
+                alert('TTS error: ' + (err.error || 'Request failed'));
+                return;
+            }
+
+            const blob = await res.blob();
+            const audioURL = URL.createObjectURL(blob);
+            const audio = new Audio(audioURL);
+            btn.data('audio', audio);
+
+            // When playback finishes: revoke the object URL and reset the button
+            audio.onended = () => {
+                URL.revokeObjectURL(audioURL);
+                btn.removeData('audio');
+                btn.find('i').removeClass('fa-pause').addClass('fa-volume-up');
+            };
+
+            audio.playbackRate = 1.25;  // 25% faster than normal — adjust if needed (1.0 = normal, 1.5 = fast, 2.0 = chipmunk)
+            audio.play();
+            btn.find('i').removeClass('fa-circle-notch fa-spin').addClass('fa-pause');
+            btn.prop('disabled', false);
+
+        } catch (e) {
+            btn.find('i').removeClass('fa-circle-notch fa-spin').addClass('fa-volume-up');
+            btn.prop('disabled', false);
+            alert('Could not reach /speak. Is the server running?');
+        }
+    });
+
+    // ✅ 7. VOICE INPUT — MediaRecorder + Groq Whisper
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let isRecording = false;
+
+    $('#micBtn').on('click', async function () {
+        if (!isRecording) {
+            // --- START RECORDING ---
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioChunks = [];
+                mediaRecorder = new MediaRecorder(stream);
+
+                mediaRecorder.ondataavailable = function (e) {
+                    if (e.data.size > 0) audioChunks.push(e.data);
+                };
+
+                mediaRecorder.onstop = async function () {
+                    // Stop all mic tracks so the browser mic indicator goes away
+                    stream.getTracks().forEach(t => t.stop());
+
+                    const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const formData = new FormData();
+                    formData.append('audio', blob, 'recording.webm');
+
+                    // Show a "transcribing..." hint in the input while we wait
+                    $('#userInput').attr('placeholder', 'Transcribing...');
+
+                    try {
+                        const res = await fetch('/transcribe', { method: 'POST', body: formData });
+                        const data = await res.json();
+                        if (data.text) {
+                            // Fill the input box — user can review/edit before sending
+                            $('#userInput').val(data.text.trim());
+                            $('#userInput').focus();
+                        } else {
+                            alert('Transcription failed: ' + (data.error || 'Unknown error'));
+                        }
+                    } catch (err) {
+                        alert('Could not reach /transcribe. Is the server running?');
+                    } finally {
+                        $('#userInput').attr('placeholder', 'Type your medical query...');
+                    }
+                };
+
+                mediaRecorder.start();
+                isRecording = true;
+
+                // Turn button red + pulse to show we're live
+                $('#micBtn').css('background-color', '#e53e3e');
+                $('#micIcon').removeClass('fa-microphone').addClass('fa-circle');
+                $('#micBtn').addClass('mic-pulse');
+
+            } catch (err) {
+                alert('Microphone access denied. Please allow mic permissions and try again.');
+            }
+
+        } else {
+            // --- STOP RECORDING ---
+            mediaRecorder.stop();
+            isRecording = false;
+
+            // Restore button to normal state
+            $('#micBtn').css('background-color', '');
+            $('#micIcon').removeClass('fa-circle').addClass('fa-microphone');
+            $('#micBtn').removeClass('mic-pulse');
+        }
+    });
+});
+</script>
+
+<style>
+/* Speaker button sits in the message footer next to the timestamp */
+.message-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 6px;
+}
+.speak-btn {
+    background: none;
+    border: none;
+    color: inherit;
+    opacity: 0.45;
+    cursor: pointer;
+    font-size: 0.72rem;
+    padding: 0 0 0 6px;
+    line-height: 1;
+    transition: opacity 0.2s;
+}
+.speak-btn:hover { opacity: 1; }
+.speak-btn:disabled { cursor: wait; opacity: 0.3; }
+
+/* Pulsing animation for the mic button while recording */
+@keyframes mic-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(229, 62, 62, 0.6); }
+    70%  { box-shadow: 0 0 0 8px rgba(229, 62, 62, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(229, 62, 62, 0); }
+}
+.mic-pulse {
+    animation: mic-pulse 1.2s infinite;
+}
+.input-group {
+    gap: 6px;
+}
+</style>
+
+</body>
+</html>
